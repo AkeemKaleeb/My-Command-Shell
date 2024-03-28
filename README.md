@@ -1,2 +1,5 @@
+Kaileb Cole (kjc265), 
+CS214 Assignment 3: My Shell
+
 # MyShell
- A custom command line shell written in C, Assignment 3 for CS214
+
