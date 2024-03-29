@@ -9,13 +9,8 @@
 #define MAX_INPUT 1024                  // Current Max input size, can be reallocated
 #define TOKEN_DELIMITER " \t\r\n\a"     // Characters that divide command line arguments
 
-bool isBatch = false;
-
 // Built in function to exit the program with a given exit status
 int exitShell(int exitStatus) {
-    if(!isBatch) {
-        printf("Exiting Shell. Have a nice day!\n");
-    }
     exit(exitStatus);
 }
 
@@ -23,13 +18,13 @@ int exitShell(int exitStatus) {
 char* readLine() {
     char* input = malloc(MAX_INPUT * sizeof(char*));            // Allocate space for input
     if(!input) {                                                // If space wasn't allocated, report an error
-        fprintf(stderr, "Error allocating read line space");
+        fprintf(stderr, "Error allocating read line space\n");
         exit(EXIT_FAILURE);
     }
 
     int bytes_read = read(STDIN_FILENO, input, MAX_INPUT);      // read() buffer
     if (bytes_read < 0) {                                       // If there is a problem reading the input buffer, print error
-        fprintf(stderr, "Error reading the command line");
+        fprintf(stderr, "Error reading the command line\n");
         exitShell(EXIT_FAILURE);            
     }
     
@@ -43,7 +38,7 @@ char* readLine() {
 char **tokenizeInput(char *input) {
     char** tokens = malloc(MAX_INPUT * sizeof(char*));          // Allocate space for tokens array
     if(!tokens) {                                               // If space was not allocated, report an error
-        fprintf(stderr, "Error allocating space for tokens");
+        fprintf(stderr, "Error allocating space for tokens\n");
         exitShell(EXIT_FAILURE);
     }
 
@@ -54,6 +49,7 @@ char **tokenizeInput(char *input) {
     token = strtok(input, TOKEN_DELIMITER); // Tokenize the inputs
     while(token != NULL) {
         tokens[position] = token;           // Assign each token to the array
+        printf("%s\n", token);
         position++;                         // Increment the array
 
         if(position >= bufferSize){         // Arguments too long, reallocate space
@@ -61,7 +57,7 @@ char **tokenizeInput(char *input) {
             tokens = realloc(tokens, bufferSize * sizeof(char*));
 
             if(!tokens) {              // Error reallocating space
-                fprintf(stderr, "Error reallocating token space");
+                fprintf(stderr, "Error reallocating token space\n");
                 exitShell(EXIT_FAILURE);
             }
         }           
@@ -80,7 +76,7 @@ int execute(char **args) {
         return true;
     }
 
-    for(int i = 0; i < sizeof(args); i++) {
+    for(int i = 0; args[i] != NULL; i++) {
         if(strcmp(args[i], "exit") == 0){
             exitShell(EXIT_SUCCESS);
         }
@@ -90,35 +86,13 @@ int execute(char **args) {
 }
 
 // Shell Loop to handle running the program
-void myshLoop() {
-    printf("Shell started: enjoy!\n");
+void myshLoop(int argc, char** argv) {
     char *input;
     char **args;
     int status;
 
-    do {                        // Shell loop
-        printf("mysh> ");       // Every new line receives shell "> "
-        fflush(stdout);         // Text is output to the shell console
-
-        input = readLine();              // Read user input from terminal
-        args = tokenizeInput(input);     // Organize input line to an array of arguments
-        status = execute(args);
-
-        free(input);                     // Free previous data
-        free(args);
-    } while(status);
-}
-
-// Main method to initialize the program, begin running the loop, and close the program
-int main(int argc, char** argv) {
-
-    if(argc > 2) {
-        printf("Usage: ./mysh \"Filepath\"\n");
-    }
-    else if(argc == 2) {
+    if(argc == 2) {
         // Batch Mode
-        printf("Entering Batch Mode, Filepath: %s\n", (char*)argv[1]);
-        isBatch = true;
         int batchFile = open(argv[1], O_RDONLY);       // Open file to read commands
         if(batchFile == -1) {                           // Check if file exists
             fprintf(stderr, "Error opening batch file\n");
@@ -129,39 +103,61 @@ int main(int argc, char** argv) {
         int bytesRead;
         while((bytesRead = read(batchFile, line, sizeof(line))) > 0) {
             char **args = tokenizeInput(line);
-            execute(args);
+            //execute(args);
             free(args);
         }
 
         if(bytesRead == -1) {
-            fprintf(stderr, "Error reading batch file");
+            fprintf(stderr, "Error reading batch file\n");
             close(batchFile);
             exit(EXIT_FAILURE);
         }
 
         close(batchFile);
-        exit(EXIT_SUCCESS);
+    }
+    else {                                  
+        printf("Shell started: enjoy!\n");
+        do {                        // Shell loop
+            printf("mysh> ");       // Every new line receives shell "> "
+            fflush(stdout);         // Text is output to the shell console
+
+            input = readLine();              // Read user input from terminal
+            args = tokenizeInput(input);     // Organize input line to an array of arguments
+            status = execute(args);
+
+            free(input);                     // Free previous data
+            free(args);
+        } while(status);
+    }
+}
+
+// Main method to initialize the program, begin running the loop, and close the program
+int main(int argc, char** argv) {
+    if(argc > 2) {
+        printf("Usage: ./mysh \"Filepath\"\n");
     }
     else {
-        // Shell Mode
-        if(isatty(STDIN_FILENO)) {
+        if(argc == 2) {
+            int fileCheck = open(argv[1], O_RDONLY);
+            if(!fileCheck) {            // Check if the argument is a file directory
+                fprintf(stderr, "Error reading file path\n");
+                exit(EXIT_FAILURE);
+            }
+
+            close(fileCheck);
+            myshLoop(argc, argv);
+            exit(EXIT_SUCCESS);
+        }
+        else {                                  // Batch Mode, straight into it 
             // preparation and initialization
             printf("Starting mysh, please wait...\n");
-            isBatch = false;
 
             // shell loop
-            myshLoop();
+            myshLoop(argc, argv);
 
             // cleanup and exiting
             printf("Exiting Shell. Have a nice day!\n");
             exitShell(EXIT_SUCCESS);
         }
-        else {
-            fprintf(stderr, "Error: No file provided for batch mode.\n");
-            exit(EXIT_FAILURE);
-        }
-       
-
-        return 0;
-    }
+    } 
 }
