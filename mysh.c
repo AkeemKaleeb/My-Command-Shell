@@ -85,6 +85,93 @@ int execute(char **args) {
     return true;
 }
 
+// modified execute function with built in commands (cd, exit, which, pwd)
+/*int execute(char **args) {
+    if(args[0] == NULL) {           // Empty command, continue
+        return true;
+    }
+
+    for(int i = 0; args[i] != NULL; i++) {
+        if(strcmp(args[i], "exit") == 0){
+            //printing out any arguments exit receives
+            for (int j = i + 1; args[j] != NULL; j++) {
+                printf("%s ", args[j]);
+            }
+            printf("\n");
+            exitShell(EXIT_SUCCESS);
+        }
+        else if (strcmp(args[i], "cd") == 0){
+            //no directory specified
+            if (args[i+1] == NULL){
+                fprintf(stderr, "cd: No directory specified\n");
+            }
+            //argc is greater than 2, 
+            else if (args[i+2] != NULL){
+                fprintf(stderr, "cd: Too many arguments\n");
+            }
+            else {
+                int currentDir = chdir(args[i+1]);
+                if (currentDir != 0){
+                    fprintf(stderr, "cd: No such file or directory\n");
+                }
+            }
+            return true;
+        }
+        else if (strcmp(args[i], "pwd") == 0){
+            if (args[i+1] != NULL) {
+                fprintf(stderr, "pwd: Too many arguments");
+            }
+            else {
+                char* cwd;
+                char buffer[MAX_INPUT];
+
+                cwd = getcwd(buff, MAX_INPUT);
+                if (cwd != NULL){
+                    printf("%s\n", cwd);
+                }
+                else {
+                    fprintf(stderr, "pwd: Could not retrieve current directory pathname\n");
+                }
+            }
+        }
+        else if (strcmp(args[i], "which") == 0){
+            //no argument given to which
+            if (args[i+1] == NULL){
+                fprintf(stderr, "which: no program name specified\n");
+            }
+            //argc is greater than 2, 
+            else if (args[i+2] != NULL){
+                fprintf(stderr, "which: Too many arguments\n");
+            }
+            else {
+                char *programName = args[i+1];
+                char *pathEnvVar = getenv("PATH");
+                char *pathNode = strtok(pathEnvVar, ":");
+                int exists = 0;
+                
+                while (pathNode != NULL) {
+                    char fullPath[MAX_INPUT];
+                    snprintf(fullPath, MAX_INPUT, "%s/%s", pathNode, programName);
+                    if(access(fullPath, F_OK) == 0) {
+                        printf("%s\n", fullPath);
+                        exists = 1;
+                        break;
+                    }
+                    pathNode = strtok(NULL, ":");
+                }
+                if (!exists){
+                    fprintf(stderr, "which: %s not found in PATH", programName);
+                }
+            }
+            return true;
+        }
+    }
+
+    return true;
+}
+*/
+
+
 // Shell Loop to handle running the program
 void myshLoop(int argc, char** argv) {
     char *input;
