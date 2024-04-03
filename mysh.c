@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
+#include <glob.h>
 
 #define MAX_INPUT 1024                  // Current Max input size, can be reallocated
 #define TOKEN_DELIMITER " \t\r\n\a"     // Characters that divide command line arguments
@@ -69,24 +70,23 @@ char **tokenizeInput(char *input) {
     return tokens;
 }
 
-// Function to execute any built in commands
-// Returns true if the program should continue running
-int execute(char **args) {
-    if(args[0] == NULL) {           // Empty command, continue
-        return true;
-    }
-
-    for(int i = 0; args[i] != NULL; i++) {
-        if(strcmp(args[i], "exit") == 0){
-            exitShell(EXIT_SUCCESS);
+// Function to handle wildcard (*) using glob
+void wildCard(const char *pattern) {
+    // Use glob to find matching files
+    glob_t globResult;
+    if (glob(pattern, 0, NULL, &globResult) == 0) {
+        for (size_t j = 0; j < globResult.gl_pathc; j++) {
+            printf("%s\n", globResult.gl_pathv[j]); // Print matching filenames, will need to change this ending functionality to change the argument list and replace the original token with the found matching names
         }
+        globfree(&globResult);
+    } else {
+        fprintf(stderr, "glob: Error in glob function\n");
     }
-
-    return true;
 }
 
 // modified execute function with built in commands (cd, exit, which, pwd)
-/*int execute(char **args) {
+// Returns true if the program should continue running
+int execute(char **args) {
     if(args[0] == NULL) {           // Empty command, continue
         return true;
     }
@@ -165,11 +165,39 @@ int execute(char **args) {
             }
             return true;
         }
+        else if (strchr(args[i], '*') != NULL) {
+            char *fullToken = args[i];
+            char *asteriskPosition = strchr(fullToken, '*');
+            if (asteriskPosition != NULL && strchr(asteriskPosition + 1, '/') == NULL) { //checks that asterisk is in the last segment of path or filename
+                if (strchr(args[i], '/') != NULL) { //given a pathname not just a file
+                    char *fileName = strrchr(fullToken, '/') + 1; //get filename part which should be right after last slash ('/'), strrchr() returns pointer to last occurence
+                    char directoryPath[MAX_INPUT]; //creating only directoryPath without filename/pattern
+                    size_t pathLength = strlen(fullToken) - strlen(fileName);
+                    strncopy(directoryPath, fullToken, pathLength); // creating just the directoryPath
+                    directoryPath[pathLength] = '\0'; // null terminating the path
+
+                    char originalDir[MAX_INPUT];
+                    getcwd(originalDir, MAX_INPUT); //get current working directory
+                    chdir(directoryPath); //change working directory to directory specified in directoryPath 
+                    wildCard(fileName); //glob current working directory for pattern)
+                    chdir(originalDir); //change back to original directory
+                    
+                }
+                else { //just a file name with an asterisk
+                    wildCard(fullToken);
+                }
+
+            }
+            else {
+                fprintf(stderr, "Error: wildcard character must be last segment of pathname\n");
+                exit(EXIT_FAILURE);
+            }
+            return true;
+        } 
     }
 
     return true;
 }
-*/
 
 
 // Shell Loop to handle running the program
