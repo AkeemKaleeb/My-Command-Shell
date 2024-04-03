@@ -125,7 +125,7 @@ int execute(char **args) {
                 char* cwd;
                 char buffer[MAX_INPUT];
 
-                cwd = getcwd(buff, MAX_INPUT);
+                cwd = getcwd(buffer, MAX_INPUT);
                 if (cwd != NULL){
                     printf("%s\n", cwd);
                 }
@@ -173,7 +173,7 @@ int execute(char **args) {
                     char *fileName = strrchr(fullToken, '/') + 1; //get filename part which should be right after last slash ('/'), strrchr() returns pointer to last occurence
                     char directoryPath[MAX_INPUT]; //creating only directoryPath without filename/pattern
                     size_t pathLength = strlen(fullToken) - strlen(fileName);
-                    strncopy(directoryPath, fullToken, pathLength); // creating just the directoryPath
+                    strncpy(directoryPath, fullToken, pathLength); // creating just the directoryPath
                     directoryPath[pathLength] = '\0'; // null terminating the path
 
                     char originalDir[MAX_INPUT];
