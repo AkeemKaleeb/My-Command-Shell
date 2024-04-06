@@ -1,7 +1,7 @@
 pwd
 ls
 echo test
-cd ./Test
+cd /Test
 pwd
 ls
 wrong

@@ -113,6 +113,7 @@ int executeCommand(char **args) {
             if (args[i+1] != NULL) {
                 fprintf(stderr, "pwd: Too many arguments\n");
             }
+            else {
                 char* cwd;
                 char buffer[MAX_INPUT];
 
@@ -123,6 +124,8 @@ int executeCommand(char **args) {
                 else {
                     fprintf(stderr, "pwd: Could not retrieve current directory pathname\n");
                 }
+            }
+            return true;
         }
         else if (strcmp(args[i], "which") == 0){
             //no argument given to which
