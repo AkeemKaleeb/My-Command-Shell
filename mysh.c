@@ -6,6 +6,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <glob.h>
+#include <sys/wait.h>
 
 #define MAX_INPUT 1024                  // Current Max input size, can be reallocated
 #define TOKEN_DELIMITER " \t\r\n\a"     // Characters that divide command line arguments
@@ -50,7 +51,6 @@ char **tokenizeInput(char *input) {
     token = strtok(input, TOKEN_DELIMITER); // Tokenize the inputs
     while(token != NULL) {
         tokens[position] = token;           // Assign each token to the array
-        printf("%s\n", token);
         position++;                         // Increment the array
 
         if(position >= bufferSize){         // Arguments too long, reallocate space
@@ -84,13 +84,7 @@ void wildCard(const char *pattern) {
     }
 }
 
-// modified execute function with built in commands (cd, exit, which, pwd)
-// Returns true if the program should continue running
-int execute(char **args) {
-    if(args[0] == NULL) {           // Empty command, continue
-        return true;
-    }
-
+int executeCommand(char **args) {
     for(int i = 0; args[i] != NULL; i++) {
         if(strcmp(args[i], "exit") == 0){
             //printing out any arguments exit receives
@@ -109,19 +103,16 @@ int execute(char **args) {
             else if (args[i+2] != NULL){
                 fprintf(stderr, "cd: Too many arguments\n");
             }
-            else {
                 int currentDir = chdir(args[i+1]);
                 if (currentDir != 0){
                     fprintf(stderr, "cd: No such file or directory\n");
                 }
-            }
             return true;
         }
         else if (strcmp(args[i], "pwd") == 0){
             if (args[i+1] != NULL) {
-                fprintf(stderr, "pwd: Too many arguments");
+                fprintf(stderr, "pwd: Too many arguments\n");
             }
-            else {
                 char* cwd;
                 char buffer[MAX_INPUT];
 
@@ -132,7 +123,6 @@ int execute(char **args) {
                 else {
                     fprintf(stderr, "pwd: Could not retrieve current directory pathname\n");
                 }
-            }
         }
         else if (strcmp(args[i], "which") == 0){
             //no argument given to which
@@ -160,7 +150,7 @@ int execute(char **args) {
                     pathNode = strtok(NULL, ":");
                 }
                 if (!exists){
-                    fprintf(stderr, "which: %s not found in PATH", programName);
+                    fprintf(stderr, "which: %s not found in PATH \n", programName);
                 }
             }
             return true;
@@ -168,22 +158,22 @@ int execute(char **args) {
         else if (strchr(args[i], '*') != NULL) {
             char *fullToken = args[i];
             char *asteriskPosition = strchr(fullToken, '*');
-            if (asteriskPosition != NULL && strchr(asteriskPosition + 1, '/') == NULL) { //checks that asterisk is in the last segment of path or filename
-                if (strchr(args[i], '/') != NULL) { //given a pathname not just a file
-                    char *fileName = strrchr(fullToken, '/') + 1; //get filename part which should be right after last slash ('/'), strrchr() returns pointer to last occurence
-                    char directoryPath[MAX_INPUT]; //creating only directoryPath without filename/pattern
+            if (asteriskPosition != NULL && strchr(asteriskPosition + 1, '/') == NULL) {    //checks that asterisk is in the last segment of path or filename
+                if (strchr(args[i], '/') != NULL) {                             // given a pathname not just a file
+                    char *fileName = strrchr(fullToken, '/') + 1;               // get filename part which should be right after last slash ('/'), strrchr() returns pointer to last occurence
+                    char directoryPath[MAX_INPUT];                              // creating only directoryPath without filename/pattern
                     size_t pathLength = strlen(fullToken) - strlen(fileName);
-                    strncpy(directoryPath, fullToken, pathLength); // creating just the directoryPath
-                    directoryPath[pathLength] = '\0'; // null terminating the path
+                    strncpy(directoryPath, fullToken, pathLength);              // creating just the directoryPath
+                    directoryPath[pathLength] = '\0';                           // null terminating the path
 
                     char originalDir[MAX_INPUT];
-                    getcwd(originalDir, MAX_INPUT); //get current working directory
-                    chdir(directoryPath); //change working directory to directory specified in directoryPath 
-                    wildCard(fileName); //glob current working directory for pattern)
-                    chdir(originalDir); //change back to original directory
+                    getcwd(originalDir, MAX_INPUT);             // get current working directory
+                    chdir(directoryPath);                       // change working directory to directory specified in directoryPath 
+                    wildCard(fileName);                         // glob current working directory for pattern)
+                    chdir(originalDir);                         // change back to original directory
                     
                 }
-                else { //just a file name with an asterisk
+                else { // just a file name with an asterisk
                     wildCard(fullToken);
                 }
 
@@ -194,11 +184,124 @@ int execute(char **args) {
             }
             return true;
         } 
+        // Not a built in command, check for other commands
+        char *pathEnvVar = getenv("PATH");                  // Get environment path
+        char *pathNode = strtok(pathEnvVar, ":");           // Tokenize the path into separate nodes
+        bool exists = false;
+
+        while(pathNode != NULL) {                           // See if program exists
+            char fullPath[MAX_INPUT];                       // Construct path 
+            snprintf(fullPath, MAX_INPUT, "%s/%s", pathNode, args[0]);      
+            if(access(fullPath, F_OK) == 0) {               // If path exists and is executable
+                exists = 1;
+                execv(fullPath, args);                      // Execute the program with the provided args
+                fprintf(stderr, "Error executing command\n");
+                exitShell(EXIT_FAILURE);
+            }
+            pathNode = strtok(NULL, ":");
+        }
+
+        if(!exists) {
+            fprintf(stderr, "Command not found: %s\n", args[0]);
+        }
     }
 
     return true;
 }
 
+// Function to execute pipelined commands
+int executePipeline(char **args1, char **args2) {
+    int pipefd[2];
+    pid_t pid1, pid2;
+
+    if(pipe(pipefd) < 0) {      // Create pipe
+        fprintf(stderr, "Error opening pipe");
+        exitShell(EXIT_FAILURE);
+    }
+
+    pid1 = fork();              // Create first fork process
+    if(pid1 < 0) {              
+        fprintf(stderr, "Error opening fork");
+        exitShell(EXIT_FAILURE);
+    }
+
+    if(pid1 == 0) {                         // Child Process 1
+        close(pipefd[0]);                   // Close unused read end
+        dup2(pipefd[1], STDOUT_FILENO);     // Redirect stdout to pipe
+        close(pipefd[1]);                   // Close write end of pipe
+
+        executeCommand(args1);              // Execute commands before pipe character
+    }
+
+    pid2 = fork();              // Fork second process
+    if(pid2 < 0) {              
+        fprintf(stderr, "Error opening fork");
+        exitShell(EXIT_FAILURE);
+    }
+
+    if(pid2 == 0) {                         // Child Process 2
+        close(pipefd[1]);                   // Close unused write end
+        dup2(pipefd[0], STDIN_FILENO);      // Redirect stdin to pipe
+        close(pipefd[0]);                   // Close read end of pipe
+
+        executeCommand(args2);              // Execute commands after pipe character
+    }
+
+    // Parent Process
+    close(pipefd[0]);       // Close read end
+    close(pipefd[1]);       // Close write end
+
+    // Wait for child processes to finish
+    waitpid(pid1, NULL, 0);
+    waitpid(pid2, NULL, 0);
+
+    return true;
+}
+
+// modified execute function with built in commands (cd, exit, which, pwd)
+// Returns true if the program should continue running
+int execute(char **args) {
+    if(args[0] == NULL) {           // Empty command, continue
+        return true;
+    }
+
+    // Pipelining Behvaior
+    int pipeIndex = -1;
+    for(int i = 0; args[i] != NULL; i++) {      // Check program for pipelines
+        if(strcmp(args[i], "|") == 0) {
+            pipeIndex = i;
+            break;
+        } 
+    }
+
+    if(pipeIndex != -1) {                       // Pipeline exists
+        char **args1 = malloc((pipeIndex + 1) * sizeof(char*));
+        char **args2 = malloc((MAX_INPUT - pipeIndex) * sizeof(char*));
+
+        if(!args1 || !args2) {                  // Error Allocating space
+            fprintf(stderr, "Error allocating memory for pipelined arguments\n");
+            exitShell(EXIT_FAILURE);
+        }
+
+        for(int i = 0; i < pipeIndex; i++) {                        // Assign the first set of arguments
+            args1[i] = args[i];
+        }
+        args1[pipeIndex] = NULL;                                    // Terminate Array
+
+        for(int i = 0; args[pipeIndex + i + 1] != NULL; i++) {      // Assign the second set of arguments
+            args2[i] = args[pipeIndex + i + 1];
+        }
+        args2[MAX_INPUT - pipeIndex - 1] = NULL;                    // Terminate Array
+
+        executePipeline(args1, args2);
+        free(args1);
+        free(args2);
+    }
+    else {      // No Pipeline
+        executeCommand(args);
+    }
+    return true;
+}
 
 // Shell Loop to handle running the program
 void myshLoop(int argc, char** argv) {
@@ -218,7 +321,7 @@ void myshLoop(int argc, char** argv) {
         int bytesRead;
         while((bytesRead = read(batchFile, line, sizeof(line))) > 0) {
             char **args = tokenizeInput(line);
-            //execute(args);
+            execute(args);
             free(args);
         }
 
@@ -249,30 +352,28 @@ void myshLoop(int argc, char** argv) {
 // Main method to initialize the program, begin running the loop, and close the program
 int main(int argc, char** argv) {
     if(argc > 2) {
-        printf("Usage: ./mysh \"Filepath\"\n");
+        myshLoop(argc, argv);
     }
-    else {
-        if(argc == 2) {
-            int fileCheck = open(argv[1], O_RDONLY);
-            if(!fileCheck) {            // Check if the argument is a file directory
-                fprintf(stderr, "Error reading file path\n");
-                exit(EXIT_FAILURE);
-            }
-
-            close(fileCheck);
-            myshLoop(argc, argv);
-            exit(EXIT_SUCCESS);
+    if(argc == 2) {
+        int fileCheck = open(argv[1], O_RDONLY);
+        if(!fileCheck) {            // Check if the argument is a file directory
+            fprintf(stderr, "Error reading file path\n");
+            exit(EXIT_FAILURE);
         }
-        else {                                  // Batch Mode, straight into it 
-            // preparation and initialization
-            printf("Starting mysh, please wait...\n");
 
-            // shell loop
-            myshLoop(argc, argv);
+        close(fileCheck);
+        myshLoop(argc, argv);
+        exit(EXIT_SUCCESS);
+    }
+    else {                                  // Batch Mode, straight into it 
+        // preparation and initialization
+        printf("Starting mysh, please wait...\n");
 
-            // cleanup and exiting
-            printf("Exiting Shell. Have a nice day!\n");
-            exitShell(EXIT_SUCCESS);
-        }
-    } 
+        // shell loop
+        myshLoop(argc, argv);
+
+        // cleanup and exiting
+        printf("Exiting Shell. Have a nice day!\n");
+        exitShell(EXIT_SUCCESS);
+    }
 }

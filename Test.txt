@@ -1,3 +1,0 @@
-one
-test 2
-exit

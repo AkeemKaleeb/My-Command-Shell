@@ -1,0 +1,9 @@
+pwd
+ls
+echo test
+cd ./Test
+pwd
+ls
+wrong
+exit
+
