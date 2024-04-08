@@ -11,6 +11,38 @@
 #define MAX_INPUT 1024                  // Current Max input size, can be reallocated
 #define TOKEN_DELIMITER " \t\r\n\a"     // Characters that divide command line arguments
 
+typedef struct {
+    char **data;
+    unsigned length;
+    unsigned capacity;
+} arraylist_t;
+
+
+void initialize(arraylist_t *L, unsigned size) {
+    L->data = malloc(size * sizeof(char*));
+    L->length = 0;
+    L->capacity = size;
+}
+
+void destroy(arraylist_t *L) {
+    free(L->data);
+}
+
+void addArgList(arraylist_t *L, const char* item) {
+    if (L->length == L->capacity) {
+        L->capacity *= 2;
+        char **temp = realloc(L->data, L->capacity * sizeof(char*));
+        if (!temp) {
+            fprintf(stderr, "Error: Reallocation failed\n");
+            exit(EXIT_FAILURE);
+        }
+        L->data = temp;
+    }
+
+    L->data[L->length] = item;
+    L->length++;
+}
+
 // Built in function to exit the program with a given exit status
 int exitShell(int exitStatus) {
     exit(exitStatus);
@@ -71,23 +103,25 @@ char **tokenizeInput(char *input) {
 }
 
 // Function to handle wildcard (*) using glob
-void wildCard(const char *pattern) {
+void wildCard(const char *pattern, char *originalToken, arraylist_t cmdArgList) {
     // Use glob to find matching files
     glob_t globResult;
     if (glob(pattern, 0, NULL, &globResult) == 0) {
         for (size_t j = 0; j < globResult.gl_pathc; j++) {
-            printf("%s\n", globResult.gl_pathv[j]); // Print matching filenames, will need to change this ending functionality to change the argument list and replace the original token with the found matching names
+            addArgList(&cmdArgList, globResult.gl_pathv[j]); // adds matching file names to argument list
         }
         globfree(&globResult);
-    } else {
-        fprintf(stderr, "glob: Error in glob function\n");
+    }
+    else {
+        addArgList(&cmdArgList, originalToken);
     }
 }
 
-int executeCommand(char **args) {
+int executeCommand(char **args, arraylist_t cmdArgList) {
     for(int i = 0; args[i] != NULL; i++) {
         if(strcmp(args[i], "exit") == 0){
             //printing out any arguments exit receives
+            addArgList(&cmdArgList, args[i]); //adds "exit" to argument list
             for (int j = i + 1; args[j] != NULL; j++) {
                 printf("%s ", args[j]);
             }
@@ -102,14 +136,19 @@ int executeCommand(char **args) {
             //argc is greater than 2, 
             else if (args[i+2] != NULL){
                 fprintf(stderr, "cd: Too many arguments\n");
-            }
+            }    
+            else }
+                addArgList(&cmdArgList, args[i]); //adds "cd" to argument list
+                addArgList(&cmdArgList, args[i+1]); //adds directoryName to change to, to argument list
                 int currentDir = chdir(args[i+1]);
                 if (currentDir != 0){
                     fprintf(stderr, "cd: No such file or directory\n");
                 }
-            return true;
+                return true;
+            }
         }
         else if (strcmp(args[i], "pwd") == 0){
+            addArgList(&cmdArgList, args[i]); // adds "pwd" to argument list
             if (args[i+1] != NULL) {
                 fprintf(stderr, "pwd: Too many arguments\n");
             }
@@ -128,6 +167,7 @@ int executeCommand(char **args) {
             return true;
         }
         else if (strcmp(args[i], "which") == 0){
+            addArgList(&cmdArgList, args[i]); // adds "which" to argument list
             //no argument given to which
             if (args[i+1] == NULL){
                 fprintf(stderr, "which: no program name specified\n");
@@ -162,7 +202,7 @@ int executeCommand(char **args) {
             char *fullToken = args[i];
             char *asteriskPosition = strchr(fullToken, '*');
             if (asteriskPosition != NULL && strchr(asteriskPosition + 1, '/') == NULL) {    //checks that asterisk is in the last segment of path or filename
-                if (strchr(args[i], '/') != NULL) {                             // given a pathname not just a file
+                if (strchr(args[i], '/') != NULL) {                             // given a pathname not just a file name
                     char *fileName = strrchr(fullToken, '/') + 1;               // get filename part which should be right after last slash ('/'), strrchr() returns pointer to last occurence
                     char directoryPath[MAX_INPUT];                              // creating only directoryPath without filename/pattern
                     size_t pathLength = strlen(fullToken) - strlen(fileName);
@@ -172,12 +212,12 @@ int executeCommand(char **args) {
                     char originalDir[MAX_INPUT];
                     getcwd(originalDir, MAX_INPUT);             // get current working directory
                     chdir(directoryPath);                       // change working directory to directory specified in directoryPath 
-                    wildCard(fileName);                         // glob current working directory for pattern)
+                    wildCard(fileName, args[i], cmdArgList);    // glob current working directory for pattern
                     chdir(originalDir);                         // change back to original directory
                     
                 }
                 else { // just a file name with an asterisk
-                    wildCard(fullToken);
+                    wildCard(fullToken, args[i], cmdArgList); // passing cmdArglist to populate with matching files or original token
                 }
 
             }
@@ -185,8 +225,74 @@ int executeCommand(char **args) {
                 fprintf(stderr, "Error: wildcard character must be last segment of pathname\n");
                 exit(EXIT_FAILURE);
             }
-            return true;
+            return true; //not sure we need this because wildcard token may not be last token
         } 
+        else if ((strchr(args[i], "<") != NULL) || (strchr(args[i], ">") != NULL)) {
+            // Check for redirection
+            int inputRedirection = 0; // Flag for input redirection
+            int outputRedirection = 0; // Flag for output redirection
+            char *inputFile = NULL; // Input file path
+            char *outputFile = NULL; // Output file path
+            if (strchr(args[i], "<") != NULL) {
+                inputRedirection = 1;
+                if (args[i + 1] != NULL && args[i + 1][0] != '\0') { // there is a space between redirection flag and file path
+                    inputFile = args[i + 1]; // Get input file path
+                } else {
+                    // If no space after '<', get input file from the current argument
+                    if (args[i][1] != '\0') {
+                        inputFile = args[i] + 1; // Start from the character immediately after '<'
+                    }
+                }
+                char *flagPosition1 = strchr(args[i], "<");
+                *flagPosition1 = '\0'; //replaces redirection symbol with NULL
+
+            } else if (strchr(args[i], ">") != NULL) {
+                // Output redirection
+                outputRedirection = 1;
+                if (args[i + 1] != NULL && args[i + 1][0] != '\0') { // there is a space between redirection flag and file path
+                    outputFile = args[i + 1]; // Get ouput file path
+                } else {
+                    // If no space after '>', get output file from the current argument
+                    if (args[i][1] != '\0') {
+                        outputFile = args[i] + 1; // Start from the character immediately after '<'
+                    }
+                }
+                char *flagPosition2 = strchr(args[i], ">");
+                *flagPosition2 = '\0'; //replaces redirection symbol with NULL
+            }
+
+            // open file for redirection
+            int fd;
+            // Input redirection
+            if (inputRedirection) {
+                fd = open(inputFile, O_RDONLY);
+                if (fd == -1) {
+                    perror("open");
+                    return 1;
+                }
+                dup2(fd, STDIN_FILENO);
+                close(fd);
+            }
+
+            // Output redirection
+            if (outputRedirection) {
+                fd = open(outputFile, O_WRONLY | O_CREAT | O_TRUNC, 0640);
+                if (fd == -1) {
+                    perror("open");
+                    return 1;
+                }
+                dup2(fd, STDOUT_FILENO);
+                close(fd);
+            }
+
+            // Execute the command
+            // may have to append to cmdArgList all the arguments that come after the redirection file name,
+            execv(args[0], cmdArgList); //execute's the first command in the command-line, and passes in the argument list
+            perror("execv"); // Print error message if execv fails to succeed
+            return 1; // Return 1 exit status, not sure if we need this because redirection tokens may not be last tokens in command line
+            // should continue reading tokens after this I believe
+
+        }
         // Not a built in command, check for other commands
         char *pathEnvVar = getenv("PATH");                  // Get environment path
         char *pathNode = strtok(pathEnvVar, ":");           // Tokenize the path into separate nodes
@@ -203,12 +309,12 @@ int executeCommand(char **args) {
             }
             pathNode = strtok(NULL, ":");
         }
-
+        addArgList(&cmdArgList, args[i]); // adds command/file to argument list
         if(!exists) {
             fprintf(stderr, "Command not found: %s\n", args[0]);
         }
-    }
 
+    }
     return true;
 }
 
@@ -233,7 +339,10 @@ int executePipeline(char **args1, char **args2) {
         dup2(pipefd[1], STDOUT_FILENO);     // Redirect stdout to pipe
         close(pipefd[1]);                   // Close write end of pipe
 
-        executeCommand(args1);              // Execute commands before pipe character
+        arraylist_t argList1;
+        int length1 = strlen(args1);
+        initialize(argList1, length1);                // creates argument list for first set of commands and passes it to executeCommand to be populated
+        executeCommand(args1, argList1);              // Execute commands before pipe character
     }
 
     pid2 = fork();              // Fork second process
@@ -247,7 +356,10 @@ int executePipeline(char **args1, char **args2) {
         dup2(pipefd[0], STDIN_FILENO);      // Redirect stdin to pipe
         close(pipefd[0]);                   // Close read end of pipe
 
-        executeCommand(args2);              // Execute commands after pipe character
+        arraylist_t argList2;
+        int length2 = strlen(args2);
+        initialize(argList2, length2);                // creates argument list for second set of commands
+        executeCommand(args2, argList2);              // Execute commands after pipe character and passes it to executeCommand to be populated
     }
 
     // Parent Process
@@ -301,7 +413,10 @@ int execute(char **args) {
         free(args2);
     }
     else {      // No Pipeline
-        executeCommand(args);
+        arraylist_t cmdArgList;   //creates single argument list, with the length of the token stream, and is passed into executeCommand function to be populated
+        int tokenLength = strlen(args); 
+        initialize(&cmdArgList, tokenLength); 
+        executeCommand(args, cmdArgList);
     }
     return true;
 }
