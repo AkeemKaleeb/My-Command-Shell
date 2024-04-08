@@ -39,7 +39,13 @@ void addArgList(arraylist_t *L, const char* item) {
         L->data = temp;
     }
 
-    L->data[L->length] = item;
+    L->data[L->length] = malloc(strlen(item) + 1);
+    if (!L->data[L->length]) {
+        fprintf(stderr, "Error: Memory allocation failed\n");
+        exit(EXIT_FAILURE);
+    }
+    strcpy(L->data[L->length], item);
+
     L->length++;
 }
 
@@ -137,7 +143,7 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
             else if (args[i+2] != NULL){
                 fprintf(stderr, "cd: Too many arguments\n");
             }    
-            else }
+            else {
                 addArgList(&cmdArgList, args[i]); //adds "cd" to argument list
                 addArgList(&cmdArgList, args[i+1]); //adds directoryName to change to, to argument list
                 int currentDir = chdir(args[i+1]);
@@ -227,13 +233,13 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
             }
             return true; //not sure we need this because wildcard token may not be last token
         } 
-        else if ((strchr(args[i], "<") != NULL) || (strchr(args[i], ">") != NULL)) {
+        else if ((strchr(args[i], '<') != NULL) || (strchr(args[i], '>') != NULL)) {
             // Check for redirection
             int inputRedirection = 0; // Flag for input redirection
             int outputRedirection = 0; // Flag for output redirection
             char *inputFile = NULL; // Input file path
             char *outputFile = NULL; // Output file path
-            if (strchr(args[i], "<") != NULL) {
+            if (strchr(args[i], '<') != NULL) {
                 inputRedirection = 1;
                 if (args[i + 1] != NULL && args[i + 1][0] != '\0') { // there is a space between redirection flag and file path
                     inputFile = args[i + 1]; // Get input file path
@@ -243,10 +249,10 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
                         inputFile = args[i] + 1; // Start from the character immediately after '<'
                     }
                 }
-                char *flagPosition1 = strchr(args[i], "<");
+                char *flagPosition1 = strchr(args[i], '<');
                 *flagPosition1 = '\0'; //replaces redirection symbol with NULL
 
-            } else if (strchr(args[i], ">") != NULL) {
+            } else if (strchr(args[i], '>') != NULL) {
                 // Output redirection
                 outputRedirection = 1;
                 if (args[i + 1] != NULL && args[i + 1][0] != '\0') { // there is a space between redirection flag and file path
@@ -257,7 +263,7 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
                         outputFile = args[i] + 1; // Start from the character immediately after '<'
                     }
                 }
-                char *flagPosition2 = strchr(args[i], ">");
+                char *flagPosition2 = strchr(args[i], '>');
                 *flagPosition2 = '\0'; //replaces redirection symbol with NULL
             }
 
@@ -287,7 +293,7 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
 
             // Execute the command
             // may have to append to cmdArgList all the arguments that come after the redirection file name,
-            execv(args[0], cmdArgList); //execute's the first command in the command-line, and passes in the argument list
+            execv(args[0], cmdArgList.data); //execute's the first command in the command-line, and passes in the argument list
             perror("execv"); // Print error message if execv fails to succeed
             return 1; // Return 1 exit status, not sure if we need this because redirection tokens may not be last tokens in command line
             // should continue reading tokens after this I believe
@@ -340,8 +346,11 @@ int executePipeline(char **args1, char **args2) {
         close(pipefd[1]);                   // Close write end of pipe
 
         arraylist_t argList1;
-        int length1 = strlen(args1);
-        initialize(argList1, length1);                // creates argument list for first set of commands and passes it to executeCommand to be populated
+        int length1 = 0;
+        while (args1[length1] != NULL) {
+            length1++;
+        }
+        initialize(&argList1, length1);                // creates argument list for first set of commands and passes it to executeCommand to be populated
         executeCommand(args1, argList1);              // Execute commands before pipe character
     }
 
@@ -357,8 +366,11 @@ int executePipeline(char **args1, char **args2) {
         close(pipefd[0]);                   // Close read end of pipe
 
         arraylist_t argList2;
-        int length2 = strlen(args2);
-        initialize(argList2, length2);                // creates argument list for second set of commands
+        int length2 = 0;
+        while (args1[length2] != NULL) {
+            length2++;
+        }
+        initialize(&argList2, length2);                // creates argument list for second set of commands
         executeCommand(args2, argList2);              // Execute commands after pipe character and passes it to executeCommand to be populated
     }
 
@@ -414,7 +426,10 @@ int execute(char **args) {
     }
     else {      // No Pipeline
         arraylist_t cmdArgList;   //creates single argument list, with the length of the token stream, and is passed into executeCommand function to be populated
-        int tokenLength = strlen(args); 
+        int tokenLength = 0;
+        while(args[tokenLength] != NULL) {
+            tokenLength++;
+        }
         initialize(&cmdArgList, tokenLength); 
         executeCommand(args, cmdArgList);
     }
