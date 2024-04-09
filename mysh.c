@@ -26,10 +26,16 @@ void initialize(arraylist_t *L, unsigned size) {
 }
 
 void destroy(arraylist_t *L) {
+    for(int i = 0; i < L->length; i++) {
+        free(L->data[i]);
+    }
     free(L->data);
 }
 
 void addArgList(arraylist_t *L, const char* item) {
+    if(item == NULL) {
+        return;
+    }
     if (L->length == L->capacity) {
         L->capacity *= 2;
         char **temp = realloc(L->data, L->capacity * sizeof(char*));
@@ -106,6 +112,11 @@ char **tokenizeInput(char *input) {
     }
 
     tokens[position] = NULL;                        // Last position increment holds no token
+    
+    if(position == 0) {
+        free(tokens);
+        tokens = NULL;
+    }
     return tokens;
 }
 
@@ -525,7 +536,6 @@ void myshLoop(int argc, char** argv) {
     int status;
 
     arraylist_t cmdArgList;
-
 
     if(argc >= 2) {
         // Batch Mode
