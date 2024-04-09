@@ -289,10 +289,12 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
                     chdir(directoryPath);                       // change working directory to directory specified in directoryPath 
                     wildCard(fileName, args[i], cmdArgList);    // glob current working directory for pattern
                     chdir(originalDir);                         // change back to original directory
+                    continue;
                     
                 }
                 else { // just a file name with an asterisk
                     wildCard(fullToken, args[i], cmdArgList); // passing cmdArglist to populate with matching files or original token
+                    continue;
                 }
                 previousStatus = true;
             }
@@ -366,8 +368,7 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
         }
         execv(args[0], cmdArgList.data); //execute's the first command in the command-line, and passes in the argument list
         perror("execv"); // Print error message if execv fails to succeed
-        return 1; // Return 1 exit status, not sure if we need this because redirection tokens may not be last tokens in command line
-        // should continue reading tokens after this I believe
+        return 1; // Return 1 exit status
     }
     else {
         pid_t pid = fork();                     // Fork a new process
