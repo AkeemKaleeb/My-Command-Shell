@@ -11,12 +11,13 @@
 #define MAX_INPUT 1024                  // Current Max input size, can be reallocated
 #define TOKEN_DELIMITER " \t\r\n\a"     // Characters that divide command line arguments
 
+bool previousStatus = false;
+
 typedef struct {
     char **data;
     unsigned length;
     unsigned capacity;
 } arraylist_t;
-
 
 void initialize(arraylist_t *L, unsigned size) {
     L->data = malloc(size * sizeof(char*));
@@ -138,10 +139,12 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
             //no directory specified
             if (args[i+1] == NULL){
                 fprintf(stderr, "cd: No directory specified\n");
+                previousStatus = false;
             }
             //argc is greater than 2, 
             else if (args[i+2] != NULL){
                 fprintf(stderr, "cd: Too many arguments\n");
+                previousStatus = false;
             }    
             else {
                 addArgList(&cmdArgList, args[i]); //adds "cd" to argument list
@@ -149,6 +152,10 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
                 int currentDir = chdir(args[i+1]);
                 if (currentDir != 0){
                     fprintf(stderr, "cd: No such file or directory\n");
+                    previousStatus = false;
+                }
+                else {
+                    previousStatus = true;
                 }
                 return true;
             }
@@ -157,6 +164,7 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
             addArgList(&cmdArgList, args[i]); // adds "pwd" to argument list
             if (args[i+1] != NULL) {
                 fprintf(stderr, "pwd: Too many arguments\n");
+                previousStatus = false;
             }
             else {
                 char* cwd;
@@ -165,9 +173,11 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
                 cwd = getcwd(buffer, MAX_INPUT);
                 if (cwd != NULL){
                     printf("%s\n", cwd);
+                    previousStatus = true;
                 }
                 else {
                     fprintf(stderr, "pwd: Could not retrieve current directory pathname\n");
+                    previousStatus = false;
                 }
             }
             return true;
@@ -177,10 +187,12 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
             //no argument given to which
             if (args[i+1] == NULL){
                 fprintf(stderr, "which: no program name specified\n");
+                previousStatus = false;
             }
             //argc is greater than 2, 
             else if (args[i+2] != NULL){
                 fprintf(stderr, "which: Too many arguments\n");
+                previousStatus = false;
             }
             else {
                 char *programName = args[i+1];
@@ -200,6 +212,10 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
                 }
                 if (!exists){
                     fprintf(stderr, "which: %s not found in PATH \n", programName);
+                    previousStatus = false;
+                }
+                else {
+                    previousStatus = true;
                 }
             }
             return true;
@@ -225,10 +241,11 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
                 else { // just a file name with an asterisk
                     wildCard(fullToken, args[i], cmdArgList); // passing cmdArglist to populate with matching files or original token
                 }
-
+                previousStatus = true;
             }
             else {
                 fprintf(stderr, "Error: wildcard character must be last segment of pathname\n");
+                previousStatus = false;
                 exit(EXIT_FAILURE);
             }
             return true; //not sure we need this because wildcard token may not be last token
@@ -312,16 +329,19 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
                 pid_t pid = fork();                     // Fork a new process
                 if (pid < 0) {
                     fprintf(stderr, "Error forking process\n");
+                    previousStatus = false;
                     exit(EXIT_FAILURE);
                 } else if (pid == 0) {
                     // Child process
                     execv(fullPath, args);              // Execute the command
-                    perror("execv");
+                    fprintf(stderr, "execv");
+                    previousStatus = false;
                     exit(EXIT_FAILURE);
                 } else {
                     // Parent process
                     int status;
                     waitpid(pid, &status, 0);           // Wait for the child process to complete
+                    previousStatus = true;
                     return true;                        // Return true to continue running the shell
                 }
             }
@@ -330,6 +350,7 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
         addArgList(&cmdArgList, args[i]); // adds command/file to argument list
         if(!exists) {
             fprintf(stderr, "Command not found: %s\n", args[0]);
+            previousStatus = false;
         }
     }
     return true;
@@ -398,6 +419,29 @@ int executePipeline(char **args1, char **args2) {
     return true;
 }
 
+void executeConditional(char **args1, char **args2, char* condition) {
+    if(strcmp(condition, "then") == 0 && previousStatus == true) {
+        arraylist_t argList1;
+        int length1 = 0;
+        while (args1[length1] != NULL) {
+            length1++;
+        }
+        initialize(&argList1, length1);                // creates argument list for first set of commands and passes it to executeCommand to be populated
+        executeCommand(args1, argList1);              // Execute commands before pipe character
+        destroy(&argList1);
+    }
+    else if(strcmp(condition, "else") == 0 && previousStatus == false) {
+        arraylist_t argList2;
+        int length2 = 0;
+        while (args2[length2] != NULL) {
+            length2++;
+        }
+        initialize(&argList2, length2);                // creates argument list for first set of commands and passes it to executeCommand to be populated
+        executeCommand(args2, argList2);              // Execute commands before pipe character
+        destroy(&argList2);
+    }
+}
+
 // modified execute function with built in commands (cd, exit, which, pwd)
 // Returns true if the program should continue running
 int execute(char **args, arraylist_t *cmdArgList) {
@@ -407,11 +451,15 @@ int execute(char **args, arraylist_t *cmdArgList) {
 
     // Pipelining Behvaior
     int pipeIndex = -1;
+    int conditionalIndex = -1;
     for(int i = 0; args[i] != NULL; i++) {      // Check program for pipelines
         if(strcmp(args[i], "|") == 0) {
             pipeIndex = i;
             break;
         } 
+        else if(strcmp(args[i], "then") == 0 || strcmp(args[i], "else") == 0){
+            conditionalIndex = i;
+        }
     }
 
     if(pipeIndex != -1) {                       // Pipeline exists
@@ -434,6 +482,29 @@ int execute(char **args, arraylist_t *cmdArgList) {
         args2[MAX_INPUT - pipeIndex - 1] = NULL;                    // Terminate Array
 
         executePipeline(args1, args2);
+        free(args1);
+        free(args2);
+    }
+    else if(conditionalIndex != -1){
+        char **args1 = malloc((conditionalIndex + 1) * sizeof(char*));
+        char **args2 = malloc((MAX_INPUT - conditionalIndex) * sizeof(char*));
+
+        if(!args1 || !args2) {                  // Error Allocating space
+            fprintf(stderr, "Error allocating memory for conditional arguments\n");
+            exitShell(EXIT_FAILURE);
+        }
+
+        for(int i = 0; i < conditionalIndex; i++) {                        // Assign the first set of arguments
+            args1[i] = args[i];
+        }
+        args1[conditionalIndex] = NULL;                                    // Terminate Array
+
+        for(int i = 0; args[conditionalIndex + i + 1] != NULL; i++) {      // Assign the second set of arguments
+            args2[i] = args[conditionalIndex + i + 1];
+        }
+        args2[MAX_INPUT - conditionalIndex - 1] = NULL;                    // Terminate Array
+
+        executeConditional(args1, args2, args[conditionalIndex]);
         free(args1);
         free(args2);
     }
