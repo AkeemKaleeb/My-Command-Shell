@@ -305,8 +305,6 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
             }
         } 
         
-        
-        }
         // Not a built in command, check for other commands
         if (i = 0) {
             char *pathEnvVar = getenv("PATH");                  // Get environment path
