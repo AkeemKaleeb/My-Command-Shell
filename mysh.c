@@ -121,27 +121,27 @@ char **tokenizeInput(char *input) {
 }
 
 // Function to handle wildcard (*) using glob
-void wildCard(const char *pattern, char *originalToken, arraylist_t cmdArgList) {
+void wildCard(const char *pattern, char *originalToken, arraylist_t *cmdArgList) {
     // Use glob to find matching files
     glob_t globResult;
     if (glob(pattern, 0, NULL, &globResult) == 0) {
         for (size_t j = 0; j < globResult.gl_pathc; j++) {
-            addArgList(&cmdArgList, globResult.gl_pathv[j]); // adds matching file names to argument list
+            addArgList(cmdArgList, globResult.gl_pathv[j]); // adds matching file names to argument list
         }
         globfree(&globResult);
     }
     else {
-        addArgList(&cmdArgList, originalToken);
+        addArgList(cmdArgList, originalToken);
     }
 }
 
-int executeCommand(char **args, arraylist_t cmdArgList) {
+int executeCommand(char **args, arraylist_t *cmdArgList) {
     bool redirectionFlag = false;
     int inputRedirection = 0; // Flag for input redirection
     int outputRedirection = 0; // Flag for output redirection
     char *inputFile = NULL; // Input file path
     char *outputFile = NULL; // Output file path
-    char *trueFullPath = NULL; //if no built-in command, this will hold exterior command path if it exists
+    char trueFullPath[MAX_INPUT]; //if no built-in command, this will hold exterior command path if it exists
 
     //iterates through token stream to determine whether redirection is necessary
     for(int i = 0; args[i] != NULL; i++) {
@@ -181,7 +181,7 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
     for(int i = 0; args[i] != NULL; i++) {
         if(strcmp(args[i], "exit") == 0){
             //printing out any arguments exit receives
-            addArgList(&cmdArgList, args[i]); //adds "exit" to argument list
+            addArgList(cmdArgList, args[i]); //adds "exit" to argument list
             for (int j = i + 1; args[j] != NULL; j++) {
                 printf("%s ", args[j]);
             }
@@ -200,8 +200,8 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
                 previousStatus = false;
             }    
             else {
-                addArgList(&cmdArgList, args[i]); //adds "cd" to argument list
-                addArgList(&cmdArgList, args[i+1]); //adds directoryName to change to, to argument list
+                addArgList(cmdArgList, args[i]); //adds "cd" to argument list
+                addArgList(cmdArgList, args[i+1]); //adds directoryName to change to, to argument list
                 int currentDir = chdir(args[i+1]);
                 if (currentDir != 0){
                     fprintf(stderr, "cd: No such file or directory\n");
@@ -214,7 +214,7 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
             }
         }
         else if (strcmp(args[i], "pwd") == 0){
-            addArgList(&cmdArgList, args[i]); // adds "pwd" to argument list
+            addArgList(cmdArgList, args[i]); // adds "pwd" to argument list
             if (args[i+1] != NULL) {
                 fprintf(stderr, "pwd: Too many arguments\n");
                 previousStatus = false;
@@ -236,7 +236,7 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
             return true;
         }
         else if (strcmp(args[i], "which") == 0){
-            addArgList(&cmdArgList, args[i]); // adds "which" to argument list
+            addArgList(cmdArgList, args[i]); // adds "which" to argument list
             //no argument given to which
             if (args[i+1] == NULL){
                 fprintf(stderr, "which: no program name specified\n");
@@ -316,7 +316,7 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
                 snprintf(fullPath, MAX_INPUT, "%s/%s", pathNode, args[0]);      
                 if(access(fullPath, F_OK) == 0) {               // If path exists and is executable
                     exists = 1;
-                    *trueFullPath = fullPath;
+                    strcpy(trueFullPath, fullPath);
                     break;
                 }
                 pathNode = strtok(NULL, ":");
@@ -326,10 +326,10 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
                 previousStatus = false;
             }
             else {
-                addArgList(&cmdArgList, args[i]);           // it exists so we add command/file to argument list
+                addArgList(cmdArgList, args[i]);           // it exists so we add command/file to argument list
             }
         } else {
-            addArgList(&cmdArgList, args[i]); 
+            addArgList(cmdArgList, args[i]); 
         }
     }
     if (redirectionFlag){
@@ -358,13 +358,13 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
             close(fd);
         }
         // Execute the command
-        for (int i = 0; i < cmdArgList->length; i++) {
-            if ((cmdArgList->data[i] != NULL && strcmp(cmdArgList->data[i], *inputFile) == 0) || (cmdArgList->data[i] != NULL && strcmp(cmdArgList->data[i], *outputFile) == 0)){
+        for (int k = 0; k < cmdArgList->length; k++) {
+            if ((cmdArgList->data[k] != NULL && strcmp(cmdArgList->data[k], inputFile) == 0) || (cmdArgList->data[k] != NULL && strcmp(cmdArgList->data[k], outputFile) == 0)){
                 // If the current element is equal to the target, mark it as NULL
-                cmdArgList->data[i] = NULL;
+                cmdArgList->data[k] = NULL;
             }
         }
-        execv(args[0], cmdArgList.data); //execute's the first command in the command-line, and passes in the argument list
+        execv(args[0], cmdArgList->data); //execute's the first command in the command-line, and passes in the argument list
         perror("execv"); // Print error message if execv fails to succeed
         return 1; // Return 1 exit status
     }
@@ -376,7 +376,7 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
             exit(EXIT_FAILURE);
         } else if (pid == 0) {
             // Child process
-            execv(trueFullPath, cmdArgList.data);              // Execute the command
+            execv(trueFullPath, cmdArgList->data);              // Execute the command
             fprintf(stderr, "execv");
             previousStatus = false;
             exit(EXIT_FAILURE);
@@ -419,7 +419,7 @@ int executePipeline(char **args1, char **args2) {
             length1++;
         }
         initialize(&argList1, length1);                // creates argument list for first set of commands and passes it to executeCommand to be populated
-        executeCommand(args1, argList1);              // Execute commands before pipe character
+        executeCommand(args1, &argList1);              // Execute commands before pipe character
         destroy(&argList1);
     }
 
@@ -440,7 +440,7 @@ int executePipeline(char **args1, char **args2) {
             length2++;
         }
         initialize(&argList2, length2);                // creates argument list for second set of commands
-        executeCommand(args2, argList2);              // Execute commands after pipe character and passes it to executeCommand to be populated
+        executeCommand(args2, &argList2);              // Execute commands after pipe character and passes it to executeCommand to be populated
         destroy(&argList2);
     }
 
@@ -463,7 +463,7 @@ void executeConditional(char **args1, char **args2, char* condition) {
             length1++;
         }
         initialize(&argList1, length1);                // creates argument list for first set of commands and passes it to executeCommand to be populated
-        executeCommand(args1, argList1);              // Execute commands before pipe character
+        executeCommand(args1, &argList1);              // Execute commands before pipe character
         destroy(&argList1);
     }
     else if(strcmp(condition, "else") == 0 && previousStatus == false) {
@@ -473,7 +473,7 @@ void executeConditional(char **args1, char **args2, char* condition) {
             length2++;
         }
         initialize(&argList2, length2);                // creates argument list for first set of commands and passes it to executeCommand to be populated
-        executeCommand(args2, argList2);              // Execute commands before pipe character
+        executeCommand(args2, &argList2);              // Execute commands before pipe character
         destroy(&argList2);
     }
 }
@@ -549,7 +549,7 @@ int execute(char **args, arraylist_t *cmdArgList) {
         while(args[tokenLength] != NULL) {
             tokenLength++;
         }
-        executeCommand(args, *cmdArgList);
+        executeCommand(args, cmdArgList);
     }
     return true;
 }
