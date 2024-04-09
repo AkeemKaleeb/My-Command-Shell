@@ -309,9 +309,21 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
             snprintf(fullPath, MAX_INPUT, "%s/%s", pathNode, args[0]);      
             if(access(fullPath, F_OK) == 0) {               // If path exists and is executable
                 exists = 1;
-                execv(fullPath, args);                      // Execute the program with the provided args
-                fprintf(stderr, "Error executing command\n");
-                exitShell(EXIT_FAILURE);
+                pid_t pid = fork();                     // Fork a new process
+                if (pid < 0) {
+                    fprintf(stderr, "Error forking process\n");
+                    exit(EXIT_FAILURE);
+                } else if (pid == 0) {
+                    // Child process
+                    execv(fullPath, args);              // Execute the command
+                    perror("execv");
+                    exit(EXIT_FAILURE);
+                } else {
+                    // Parent process
+                    int status;
+                    waitpid(pid, &status, 0);           // Wait for the child process to complete
+                    return true;                        // Return true to continue running the shell
+                }
             }
             pathNode = strtok(NULL, ":");
         }
@@ -319,7 +331,6 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
         if(!exists) {
             fprintf(stderr, "Command not found: %s\n", args[0]);
         }
-
     }
     return true;
 }
@@ -352,6 +363,7 @@ int executePipeline(char **args1, char **args2) {
         }
         initialize(&argList1, length1);                // creates argument list for first set of commands and passes it to executeCommand to be populated
         executeCommand(args1, argList1);              // Execute commands before pipe character
+        destroy(&argList1);
     }
 
     pid2 = fork();              // Fork second process
@@ -372,6 +384,7 @@ int executePipeline(char **args1, char **args2) {
         }
         initialize(&argList2, length2);                // creates argument list for second set of commands
         executeCommand(args2, argList2);              // Execute commands after pipe character and passes it to executeCommand to be populated
+        destroy(&argList2);
     }
 
     // Parent Process
@@ -387,7 +400,7 @@ int executePipeline(char **args1, char **args2) {
 
 // modified execute function with built in commands (cd, exit, which, pwd)
 // Returns true if the program should continue running
-int execute(char **args) {
+int execute(char **args, arraylist_t *cmdArgList) {
     if(args[0] == NULL) {           // Empty command, continue
         return true;
     }
@@ -425,13 +438,11 @@ int execute(char **args) {
         free(args2);
     }
     else {      // No Pipeline
-        arraylist_t cmdArgList;   //creates single argument list, with the length of the token stream, and is passed into executeCommand function to be populated
         int tokenLength = 0;
         while(args[tokenLength] != NULL) {
             tokenLength++;
         }
-        initialize(&cmdArgList, tokenLength); 
-        executeCommand(args, cmdArgList);
+        executeCommand(args, *cmdArgList);
     }
     return true;
 }
@@ -442,9 +453,13 @@ void myshLoop(int argc, char** argv) {
     char **args;
     int status;
 
-    if(argc == 2) {
+    arraylist_t cmdArgList;
+
+
+    if(argc >= 2) {
         // Batch Mode
-        int batchFile = open(argv[1], O_RDONLY);       // Open file to read commands
+        initialize(&cmdArgList, MAX_INPUT);
+        int batchFile = open(argv[1], O_RDONLY);        // Open file to read commands
         if(batchFile == -1) {                           // Check if file exists
             fprintf(stderr, "Error opening batch file\n");
             exit(EXIT_FAILURE);
@@ -454,7 +469,7 @@ void myshLoop(int argc, char** argv) {
         int bytesRead;
         while((bytesRead = read(batchFile, line, sizeof(line))) > 0) {
             char **args = tokenizeInput(line);
-            execute(args);
+            execute(args, &cmdArgList);
             free(args);
         }
 
@@ -465,6 +480,7 @@ void myshLoop(int argc, char** argv) {
         }
 
         close(batchFile);
+        destroy(&cmdArgList);
     }
     else {                                  
         printf("Shell started: enjoy!\n");
@@ -474,7 +490,7 @@ void myshLoop(int argc, char** argv) {
 
             input = readLine();              // Read user input from terminal
             args = tokenizeInput(input);     // Organize input line to an array of arguments
-            status = execute(args);
+            status = execute(args, &cmdArgList);
 
             free(input);                     // Free previous data
             free(args);
