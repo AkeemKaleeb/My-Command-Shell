@@ -1,4 +1,4 @@
-Kaileb Cole (kjc265), 
+Kaileb Cole (kjc265), Leonardo Celi (lgc59)
 CS214 Assignment 3: My Shell
 
 # MyShell
