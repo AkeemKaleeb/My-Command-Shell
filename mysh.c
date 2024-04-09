@@ -136,6 +136,48 @@ void wildCard(const char *pattern, char *originalToken, arraylist_t cmdArgList) 
 }
 
 int executeCommand(char **args, arraylist_t cmdArgList) {
+    bool redirectionFlag = false;
+    int inputRedirection = 0; // Flag for input redirection
+    int outputRedirection = 0; // Flag for output redirection
+    char *inputFile = NULL; // Input file path
+    char *outputFile = NULL; // Output file path
+    char *trueFullPath = NULL; //if no built-in command, this will hold exterior command path if it exists
+
+    //iterates through token stream to determine whether redirection is necessary
+    for(int i = 0; args[i] != NULL; i++) {
+        if ((strchr(args[i], '<') != NULL) || (strchr(args[i], '>') != NULL)) {
+            // Check for redirection
+            if (strchr(args[i], '<') != NULL) {
+                inputRedirection = 1;
+                if (args[i + 1] != NULL && args[i + 1][0] != '\0') { // there is a space between redirection flag and file path
+                    inputFile = args[i + 1]; // Get input file path
+                } else {
+                    // If no space after '<', get input file from the current argument
+                    if (args[i][1] != '\0') {
+                        inputFile = args[i] + 1; // Start from the character immediately after '<'
+                    }
+                }
+                char *flagPosition1 = strchr(args[i], '<');
+                *flagPosition1 = ' '; //replaces redirection symbol with a space 
+
+            } else if (strchr(args[i], '>') != NULL) {
+                // Output redirection
+                outputRedirection = 1;
+                if (args[i + 1] != NULL && args[i + 1][0] != '\0') { // there is a space between redirection flag and file path
+                    outputFile = args[i + 1]; // Get ouput file path
+                } else {
+                    // If no space after '>', get output file from the current argument
+                    if (args[i][1] != '\0') {
+                        outputFile = args[i] + 1; // Start from the character immediately after '<'
+                    }
+                }
+                char *flagPosition2 = strchr(args[i], '>');
+                *flagPosition2 = ' '; //replaces redirection symbol with a space
+            }
+            redirectionFlag = true; //if a redirection character is detected, we mark the flag true.
+        }    
+    }
+    
     for(int i = 0; args[i] != NULL; i++) {
         if(strcmp(args[i], "exit") == 0){
             //printing out any arguments exit receives
@@ -259,111 +301,95 @@ int executeCommand(char **args, arraylist_t cmdArgList) {
                 previousStatus = false;
                 exit(EXIT_FAILURE);
             }
-            return true; //not sure we need this because wildcard token may not be last token
         } 
-        else if ((strchr(args[i], '<') != NULL) || (strchr(args[i], '>') != NULL)) {
-            // Check for redirection
-            int inputRedirection = 0; // Flag for input redirection
-            int outputRedirection = 0; // Flag for output redirection
-            char *inputFile = NULL; // Input file path
-            char *outputFile = NULL; // Output file path
-            if (strchr(args[i], '<') != NULL) {
-                inputRedirection = 1;
-                if (args[i + 1] != NULL && args[i + 1][0] != '\0') { // there is a space between redirection flag and file path
-                    inputFile = args[i + 1]; // Get input file path
-                } else {
-                    // If no space after '<', get input file from the current argument
-                    if (args[i][1] != '\0') {
-                        inputFile = args[i] + 1; // Start from the character immediately after '<'
-                    }
-                }
-                char *flagPosition1 = strchr(args[i], '<');
-                *flagPosition1 = '\0'; //replaces redirection symbol with NULL
-
-            } else if (strchr(args[i], '>') != NULL) {
-                // Output redirection
-                outputRedirection = 1;
-                if (args[i + 1] != NULL && args[i + 1][0] != '\0') { // there is a space between redirection flag and file path
-                    outputFile = args[i + 1]; // Get ouput file path
-                } else {
-                    // If no space after '>', get output file from the current argument
-                    if (args[i][1] != '\0') {
-                        outputFile = args[i] + 1; // Start from the character immediately after '<'
-                    }
-                }
-                char *flagPosition2 = strchr(args[i], '>');
-                *flagPosition2 = '\0'; //replaces redirection symbol with NULL
-            }
-
-            // open file for redirection
-            int fd;
-            // Input redirection
-            if (inputRedirection) {
-                fd = open(inputFile, O_RDONLY);
-                if (fd == -1) {
-                    perror("open");
-                    return 1;
-                }
-                dup2(fd, STDIN_FILENO);
-                close(fd);
-            }
-
-            // Output redirection
-            if (outputRedirection) {
-                fd = open(outputFile, O_WRONLY | O_CREAT | O_TRUNC, 0640);
-                if (fd == -1) {
-                    perror("open");
-                    return 1;
-                }
-                dup2(fd, STDOUT_FILENO);
-                close(fd);
-            }
-
-            // Execute the command
-            // may have to append to cmdArgList all the arguments that come after the redirection file name,
-            execv(args[0], cmdArgList.data); //execute's the first command in the command-line, and passes in the argument list
-            perror("execv"); // Print error message if execv fails to succeed
-            return 1; // Return 1 exit status, not sure if we need this because redirection tokens may not be last tokens in command line
-            // should continue reading tokens after this I believe
-
+        
+        
         }
         // Not a built in command, check for other commands
-        char *pathEnvVar = getenv("PATH");                  // Get environment path
-        char *pathNode = strtok(pathEnvVar, ":");           // Tokenize the path into separate nodes
-        bool exists = false;
+        if (i = 0) {
+            char *pathEnvVar = getenv("PATH");                  // Get environment path
+            char *pathNode = strtok(pathEnvVar, ":");           // Tokenize the path into separate nodes
+            bool exists = false;
 
-        while(pathNode != NULL) {                           // See if program exists
-            char fullPath[MAX_INPUT];                       // Construct path 
-            snprintf(fullPath, MAX_INPUT, "%s/%s", pathNode, args[0]);      
-            if(access(fullPath, F_OK) == 0) {               // If path exists and is executable
-                exists = 1;
-                pid_t pid = fork();                     // Fork a new process
-                if (pid < 0) {
-                    fprintf(stderr, "Error forking process\n");
-                    previousStatus = false;
-                    exit(EXIT_FAILURE);
-                } else if (pid == 0) {
-                    // Child process
-                    execv(fullPath, args);              // Execute the command
-                    fprintf(stderr, "execv");
-                    previousStatus = false;
-                    exit(EXIT_FAILURE);
-                } else {
-                    // Parent process
-                    int status;
-                    waitpid(pid, &status, 0);           // Wait for the child process to complete
-                    previousStatus = true;
-                    return true;                        // Return true to continue running the shell
+            while(pathNode != NULL) {                           // See if program exists
+                char fullPath[MAX_INPUT];                       // Construct path 
+                snprintf(fullPath, MAX_INPUT, "%s/%s", pathNode, args[0]);      
+                if(access(fullPath, F_OK) == 0) {               // If path exists and is executable
+                    exists = 1;
+                    *trueFullPath = fullPath;
+                    break;
                 }
+                pathNode = strtok(NULL, ":");
             }
-            pathNode = strtok(NULL, ":");
-        }
-        addArgList(&cmdArgList, args[i]); // adds command/file to argument list
-        if(!exists) {
-            fprintf(stderr, "Command not found: %s\n", args[0]);
-            previousStatus = false;
+            if(!exists) {
+                fprintf(stderr, "Command not found: %s\n", args[0]);
+                previousStatus = false;
+            }
+            else {
+                addArgList(&cmdArgList, args[i]);           // it exists so we add command/file to argument list
+            }
+        } else {
+            addArgList(&cmdArgList, args[i]); 
         }
     }
+    if (redirectionFlag){
+
+        // open file for redirection
+        int fd;
+        // Input redirection
+        if (inputRedirection) {
+            fd = open(inputFile, O_RDONLY);
+            if (fd == -1) {
+                perror("open");
+                return 1;
+            }
+            dup2(fd, STDIN_FILENO);
+            close(fd);
+        }
+
+        // Output redirection
+        if (outputRedirection) {
+            fd = open(outputFile, O_WRONLY | O_CREAT | O_TRUNC, 0640);
+            if (fd == -1) {
+                perror("open");
+                return 1;
+            }
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+        }
+        // Execute the command
+        for (int i = 0; i < cmdArgList->length; i++) {
+            if ((cmdArgList->data[i] != NULL && strcmp(cmdArgList->data[i], *inputFile) == 0) || (cmdArgList->data[i] != NULL && strcmp(cmdArgList->data[i], *outputFile) == 0)){
+                // If the current element is equal to the target, mark it as NULL
+                cmdArgList->data[i] = NULL;
+            }
+        }
+        execv(args[0], cmdArgList.data); //execute's the first command in the command-line, and passes in the argument list
+        perror("execv"); // Print error message if execv fails to succeed
+        return 1; // Return 1 exit status, not sure if we need this because redirection tokens may not be last tokens in command line
+        // should continue reading tokens after this I believe
+    }
+    else {
+        pid_t pid = fork();                     // Fork a new process
+        if (pid < 0) {
+            fprintf(stderr, "Error forking process\n");
+            previousStatus = false;
+            exit(EXIT_FAILURE);
+        } else if (pid == 0) {
+            // Child process
+            execv(trueFullPath, cmdArgList.data);              // Execute the command
+            fprintf(stderr, "execv");
+            previousStatus = false;
+            exit(EXIT_FAILURE);
+        } else {
+            // Parent process
+            int status;
+            waitpid(pid, &status, 0);           // Wait for the child process to complete
+            previousStatus = true;
+            return true;                        // Return true to continue running the shell
+        }
+    }
+    
     return true;
 }
 
